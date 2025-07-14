@@ -1,11 +1,11 @@
-## SwabSeqModular: R package for swabseq analysis with a modular design
+## SwabSeqV2: R package for swabseq analysis with a modular design
 
 ### Installation
 
-The SwabSeqModular package can be downloaded and installed by running the following command from the R console:
+The SwabSeqV2 package can be downloaded and installed by running the following command from the R console:
 
 ```r
-devtools::install_github("joshsbloom/SwabSeqModular" ,ref="main")
+devtools::install_github("tarjakub/SwabSeqV2" ,ref="main")
 ```
 
 ### Usage
