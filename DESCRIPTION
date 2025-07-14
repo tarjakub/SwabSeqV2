@@ -1,0 +1,36 @@
+Package: SwabSeqModular
+Title: Modular SwabSeq analysis
+Version: 0.1
+Authors@R: 
+    person(given = "Joshua",
+           family = "Bloom",
+           role = c("aut", "cre"),
+           email = "jbloom@mednet.ucla.edu",
+           comment = c(ORCID = "https://orcid.org/0000-0002-7241-1648"))
+Description: This package will count expected amplicons for expected indices from a fastq file with error tolerance, and contains other helper functions.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+Depends:
+    R(>= 3.5.0)
+Imports:
+    dplyr,
+    tidyr,
+    data.table,
+    Biobase,
+    S4Vectors,
+    magrittr,
+    stringfish 
+Suggests:
+    XML,
+    seqinr,
+    plater,
+    seqtrie,
+    devtools,
+    roxygen2,
+    ggplot2,
+    knitr
+VignetteBuilder: knitr
+URL: https://github.com/joshsbloom/SwabSeqModular
