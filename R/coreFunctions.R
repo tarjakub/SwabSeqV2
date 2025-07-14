@@ -183,7 +183,7 @@ seqtrie_match=function(#character vector of observed sequences
                        #character vector of expected sequences
                        uexp, 
                        #max levenshtein distance (lv) to search for a match 
-                       maxDist=0, 
+                       maxDist=1, 
                        #max parallel threads for match operation
                        lv.nthreads=1,
                        #name to prepend to match table 
@@ -231,7 +231,7 @@ seqtrie_match=function(#character vector of observed sequences
 #' @param nthreads an integer specifiying the maximum number of threads (default=1)
 #' @return a list containing `count.tables` for each expected amplicon and `amp.match.summary` the number of reads across the experiment matching each expected amplicon
 #' @export
-countAmplicons=function(in.con, index.key, amplicons, line.buffer=5e6,max.lines=NULL,nthreads=1) {
+countAmplicons=function(in.con, index.key, amplicons, line.buffer=5e6,max.lines=NULL,nthreads=1, max.mismatch = 0) {
 
     #in.con=gzcon(file('/data0/yeast/shen/bcls9/out/Amplicon71_S8_R1_001.fastq.gz', open='rb'))
     lines_read=0
