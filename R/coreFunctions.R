@@ -183,7 +183,7 @@ seqtrie_match=function(#character vector of observed sequences
                        #character vector of expected sequences
                        uexp, 
                        #max levenshtein distance (lv) to search for a match 
-                       maxDist=1, 
+                       maxDist=0, 
                        #max parallel threads for match operation
                        lv.nthreads=1,
                        #name to prepend to match table 
@@ -229,18 +229,37 @@ seqtrie_match=function(#character vector of observed sequences
 #' @param line.buffer an integer specifiying the number of lines to read at once 
 #' @param max.lines an integer specifiying the maximum total number of lines to read for debugging (default=NULL)
 #' @param nthreads an integer specifiying the maximum number of threads (default=1)
-#' @return a list containing `count.tables` for each expected amplicon and `amp.match.summary` the number of reads across the experiment matching each expected amplicon
+#' @return list(count.tables=..., amp.match.summary.table=..., total.count.table=...)
 #' @export
-countAmplicons=function(in.con, index.key, amplicons, line.buffer=5e6,max.lines=NULL,nthreads=1, max.mismatch = 0) {
+countAmplicons=function(in.con, index.key, amplicons, line.buffer=5e6,max.lines=NULL,nthreads=1) {
 
     #in.con=gzcon(file('/data0/yeast/shen/bcls9/out/Amplicon71_S8_R1_001.fastq.gz', open='rb'))
-    lines_read=0
+    lines_read <- 0L
 
     count.tables=initAmpliconCountTables(index.key, amplicons)
+
+    ## ---------- NEW: init per-sample TOTAL table (denominator) ----------
+    total.count.table <- as.data.table(index.key)
+    total.count.table$mergedIndex <- paste0(total.count.table$index, total.count.table$index2)
+    total.count.table$Total_Count <- 0L
 
     #running summary of amplicon matching 
     amp.match.summary.table=rep(0, length(amplicons)+1)
     names(amp.match.summary.table)=c(names(amplicons),'no_align')
+
+    ## ---------- NEW: precompute Hamming-1 maps for index1 and index2 (once) ----------
+    index1 <- unique(total.count.table$index)
+    index2 <- unique(total.count.table$index2)
+
+    i1h <- lapply(index1, make_hamming1_sequences); names(i1h) <- index1
+    ih1 <- Biobase::reverseSplit(i1h)
+    ih1.elements <- names(ih1)
+    ih1.indices  <- as.vector(unlist(ih1))
+
+    i2h <- lapply(index2, make_hamming1_sequences); names(i2h) <- index2
+    ih2 <- Biobase::reverseSplit(i2h)
+    ih2.elements <- names(ih2)
+    ih2.indices  <- as.vector(unlist(ih2))
 
     #expected amplicons with seq errors 
     amph1=lapply(amplicons, make_hamming1_sequences)
@@ -281,31 +300,47 @@ countAmplicons=function(in.con, index.key, amplicons, line.buffer=5e6,max.lines=
          amp.match.summary=c(amp.match.summary, no_align)
          names(amp.match.summary) <- c(names(amp.match.summary[-length(amp.match.summary)]),"no_align")
          amp.match.summary.table=amp.match.summary.table+amp.match.summary
+        
+        ## ---------- NEW: error-correct indices ONCE for the chunk ----------
+        i1m <- ih1.indices[S4Vectors::match(ind1, ih1.elements)]
+        i2m <- ih2.indices[S4Vectors::match(ind2, ih2.elements)]
+        m   <- match(paste0(i1m, i2m), total.count.table$mergedIndex)   # integer vector (NA if no EC)
 
+        ## ---------- NEW: update TOTALS for ALL reads with a valid EC ----------
+        if (any(!is.na(m))) {
+          mm <- m[!is.na(m)]
+          total.count.table$Total_Count <- total.count.table$Total_Count +
+            tabulate(mm, nbins = nrow(total.count.table))
+        }
+        
          #convert to indices
          per.amplicon.row.index=lapply(names(amplicons), function(x) which(amp.match==x))
          names(per.amplicon.row.index)=names(amplicons)
-        #2seconds
 
-         #for each amplicon of interest count up reads where indices match expected samples
-         for(a in names(count.tables)){
-             count.tables[[a]]= errorCorrectIdxAndCountAmplicons(per.amplicon.row.index[[a]], count.tables[[a]], ind1,ind2)
+        for (a in names(count.tables)) {
+          if (length(per.amplicon.row.index[[a]]) == 0L) next
+          mi <- m[per.amplicon.row.index[[a]]]
+          mi <- mi[!is.na(mi)]
+          if (length(mi)) {
+            count.tables[[a]]$Count <- count.tables[[a]]$Count +
+              tabulate(mi, nbins = nrow(count.tables[[a]]))
           }
-
-         if(!is.null(max.lines)){
-         if(lines_read >= max.lines) { 
-                 close(in.con)
-                 return(list(count.tables=count.tables,
-                amp.match.summary.table=amp.match.summary.table))
-            }
-          }
-
         }
 
-    close(in.con)
-    
-    return(list(count.tables=count.tables,
-                amp.match.summary.table=amp.match.summary.table))
+         if (!is.null(max.lines) && lines_read >= max.lines) {
+      close(in.con)
+      return(list(
+        count.tables = count.tables,
+        amp.match.summary.table = amp.match.summary.table,
+        total.count.table = total.count.table
+      ))
+    }
+  }
+
+  close(in.con)
+  return(list(
+    count.tables = count.tables,
+    amp.match.summary.table = amp.match.summary.table,
+    total.count.table = total.count.table
+  ))
 }
-
-
