@@ -244,10 +244,10 @@ countAmplicons <- function(in.con, index.key, amplicons,
                                       c(names(amplicons), "no_align"))
 
   # build the Hamming-1 neighborhood for amplicons (your original approach)
-  amph1 <- lapply(amplicons, make_hamming1_sequences)
-  amph1 <- Biobase::reverseSplit(amph1)
-  amph1.elements <- names(amph1)
-  amph1.indices  <- as.vector(unlist(amph1))
+  amph1=lapply(amplicons, make_hamming1_sequences)
+  amph1=Biobase::reverseSplit(amph1)
+  amph1.elements=names(amph1)
+  amph1.indices=as.vector(unlist(amph1))
 
   # totals table that uses the SAME sample order as your per-amplicon tables 
   # we copy the first amplicon's table structure to guarantee row order alignment
@@ -289,22 +289,19 @@ countAmplicons <- function(in.con, index.key, amplicons,
     ind2 <- substring(tmp, 12L, 21L)
 
     # ----- amplicon classification (R1) -----
-    amp.match <- amph1.indices[S4Vectors::match(rd1, amph1.elements)]
+    amp.match=amph1.indices[S4Vectors::match(rd1, amph1.elements)]
+    no_align=sum(is.na(amp.match) )
 
-    # NA-safe per-chunk summary in canonical order
-    no_align <- sum(is.na(amp.match))
-    amp.tab  <- table(amp.match)  # NAs excluded
-    amp.vec  <- integer(length(amplicons)); names(amp.vec) <- names(amplicons)
-    if (length(amp.tab)) {
-      mpos <- match(names(amplicons), names(amp.tab))
-      sel  <- which(!is.na(mpos))
-      if (length(sel)) amp.vec[sel] <- as.integer(amp.tab[mpos[sel]])
-    }
-    amp.match.summary.table <- amp.match.summary.table + c(amp.vec, "no_align" = no_align)
+    #summarize amplicon matches
+    amp.match.summary=table(amp.match)
+    amp.match.summary=amp.match.summary[match(names(amplicons),names(amp.match.summary))]
+    amp.match.summary=c(amp.match.summary, no_align)
+    names(amp.match.summary) <- c(names(amp.match.summary[-length(amp.match.summary)]),"no_align")
+    amp.match.summary.table=amp.match.summary.table+amp.match.summary
 
     # ----- your original per-amplicon counting path -----
-    per.amplicon.row.index <- lapply(names(amplicons), function(x) which(amp.match == x))
-    names(per.amplicon.row.index) <- names(amplicons)
+    per.amplicon.row.index=lapply(names(amplicons), function(x) which(amp.match==x))
+    names(per.amplicon.row.index)=names(amplicons)
 
     for (a in names(count.tables)) {
       if (!length(per.amplicon.row.index[[a]])) next
