@@ -333,9 +333,9 @@ countAmplicons <- function(in.con, index.key, amplicons,
 
   # collapse totals to one row per Sample_ID (in case Sample_IDs repeat)
   tt <- as.data.frame(total_tbl_work)
-  total.count.table <- stats::aggregate(Count ~ Sample_ID, data = tt, FUN = sum)
-  names(total.count.table)[2] <- "Total_Count"
-
+  total.count.table <- stats::aggregate(Count ~ Plate_ID + Sample_Well, data = tt, FUN = sum)
+  names(total.count.table)[3] <- "Total_Count"
+  
   list(
     count.tables            = count.tables,
     amp.match.summary.table = amp.match.summary.table,
