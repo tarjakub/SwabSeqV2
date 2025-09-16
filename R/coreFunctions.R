@@ -249,14 +249,19 @@ countAmplicons <- function(in.con, index.key, amplicons,
   amph1.elements <- names(amph1)
   amph1.indices  <- as.vector(unlist(amph1))
 
-  # ------- NEW: totals table that uses the SAME sample order as your per-amplicon tables -------
+  # totals table that uses the SAME sample order as your per-amplicon tables 
   # we copy the first amplicon's table structure to guarantee row order alignment
   first_amp <- names(count.tables)[1]
   if (length(first_amp) == 0L) stop("initAmpliconCountTables returned no tables.")
-    total_tbl_work <- data.table::copy(data.table::as.data.table(count.tables[[first_amp]]))
-    total_tbl_work[, Count := 0L]              # keep index, index2, mergedIndex
-    # (optional) drop the amplicon label column if present:
-    if ("amplicon" %in% names(total_tbl_work)) total_tbl_work[, amplicon := NULL]
+  total_tbl_work <- data.table::copy(data.table::as.data.table(count.tables[[first_amp]]))
+  # zero Count without using :=
+  if (!"Count" %in% names(total_tbl_work)) {
+    total_tbl_work$Count <- 0L
+  } else {
+    data.table::set(total_tbl_work, j = "Count", value = as.integer(0))
+  }
+    
+  if ("amplicon" %in% names(total_tbl_work)) data.table::set(total_tbl_work, j = "amplicon", value = NULL)
 
   repeat {
     chunk <- readLines(in.con, n = line.buffer)
@@ -268,13 +273,13 @@ countAmplicons <- function(in.con, index.key, amplicons,
     lchunk <- n_all %/% 4L
     lines_read <- lines_read + n_all
 
-    # correct FASTQ parsing
+    # FASTQ parsing
     nlines <- seq_len(n_all)
     mod4   <- nlines %% 4L
     header <- chunk[mod4 == 1L]
     rd1    <- chunk[mod4 == 2L]
 
-    # pull inline indices from header (everything after last colon)
+    # indices from header (everything after last colon)
     if (nthreads > 1 && requireNamespace("stringfish", quietly = TRUE)) {
       tmp <- stringfish::sf_gsub(header, ".*:", "", nthreads = nthreads)
     } else {
@@ -310,7 +315,7 @@ countAmplicons <- function(in.con, index.key, amplicons,
       )
     }
 
-    # ----- NEW: totals bump = run the SAME index EC/counting on *all reads* -----
+    # totals bump = run the SAME index EC/counting on *all reads* 
     # this assigns every read to a sample (if indices EC) regardless of amplicon match
     total_tbl_work <- errorCorrectIdxAndCountAmplicons(
       seq_along(ind1),  # all reads in this chunk
@@ -327,13 +332,14 @@ countAmplicons <- function(in.con, index.key, amplicons,
   close(in.con)
 
   # collapse totals to one row per Sample_ID (in case Sample_IDs repeat)
-  total.count.table <- data.table::as.data.table(total_tbl_work)[
-  , list(Total_Count = sum(Count)), by = "Sample_ID"]
+  tt <- as.data.frame(total_tbl_work)
+  total.count.table <- stats::aggregate(Count ~ Sample_ID, data = tt, FUN = sum)
+  names(total.count.table)[2] <- "Total_Count"
 
   list(
-    count.tables             = count.tables,
-    amp.match.summary.table  = amp.match.summary.table,
-    total.count.table        = total.count.table
+    count.tables            = count.tables,
+    amp.match.summary.table = amp.match.summary.table,
+    total.count.table       = total.count.table
   )
 }
 
