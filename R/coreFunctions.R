@@ -253,10 +253,10 @@ countAmplicons <- function(in.con, index.key, amplicons,
   # we copy the first amplicon's table structure to guarantee row order alignment
   first_amp <- names(count.tables)[1]
   if (length(first_amp) == 0L) stop("initAmpliconCountTables returned no tables.")
-  total_tbl_work <- data.table::data.table(
-    Sample_ID = count.tables[[first_amp]]$Sample_ID,
-    Count     = integer(nrow(count.tables[[first_amp]]))  # working 'Count' col for the helper
-  )
+    total_tbl_work <- data.table::copy(data.table::as.data.table(count.tables[[first_amp]]))
+    total_tbl_work[, Count := 0L]              # keep index, index2, mergedIndex
+    # (optional) drop the amplicon label column if present:
+    if ("amplicon" %in% names(total_tbl_work)) total_tbl_work[, amplicon := NULL]
 
   repeat {
     chunk <- readLines(in.con, n = line.buffer)
@@ -328,7 +328,7 @@ countAmplicons <- function(in.con, index.key, amplicons,
 
   # collapse totals to one row per Sample_ID (in case Sample_IDs repeat)
   total.count.table <- data.table::as.data.table(total_tbl_work)[
-    , .(Total_Count = sum(Count)), by = Sample_ID]
+  , list(Total_Count = sum(Count)), by = "Sample_ID"]
 
   list(
     count.tables             = count.tables,
