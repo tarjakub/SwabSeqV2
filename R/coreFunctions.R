@@ -222,125 +222,118 @@ seqtrie_match=function(#character vector of observed sequences
             }
 
 #' @title Count expected amplicons
-#' @description Count the expected amplicons for the given indices
-#' @param in.con a file connections, for example gzfile
-#' @param index.key a data.table with Plate_ID, Sample_Well, Sample_ID, index, and index2  ... where index is i7 and index2 is i5
-#' @param amplicons a list of named expected sequences for read 1 amplicons
-#' @param line.buffer an integer specifiying the number of lines to read at once 
-#' @param max.lines an integer specifiying the maximum total number of lines to read for debugging (default=NULL)
-#' @param nthreads an integer specifiying the maximum number of threads (default=1)
+#' @description Count expected amplicons (per sample) and also return total reads per sample.
+#' @param in.con gzfile/connection to R1 FASTQ (trimmed if needed)
+#' @param index.key data.table with Plate_ID, Sample_Well, Sample_ID, index (i7), index2 (i5)
+#' @param amplicons named list of expected R1 amplicon sequences
+#' @param line.buffer number of lines to read per chunk (not reads; 4 lines/read)
+#' @param max.lines optional hard stop on total lines read (for debugging)
+#' @param nthreads threads for stringfish (if available)
 #' @return list(count.tables=..., amp.match.summary.table=..., total.count.table=...)
 #' @export
-countAmplicons=function(in.con, index.key, amplicons, line.buffer=5e6,max.lines=NULL,nthreads=1) {
+countAmplicons <- function(in.con, index.key, amplicons,
+                           line.buffer = 5e6, max.lines = NULL, nthreads = 1) {
 
-    #in.con=gzcon(file('/data0/yeast/shen/bcls9/out/Amplicon71_S8_R1_001.fastq.gz', open='rb'))
-    lines_read <- 0L
+  lines_read <- 0L
 
-    count.tables=initAmpliconCountTables(index.key, amplicons)
+  # your original per-amplicon tables
+  count.tables <- initAmpliconCountTables(index.key, amplicons)
 
-    ## ---------- NEW: init per-sample TOTAL table (denominator) ----------
-    total.count.table <- as.data.table(index.key)
-    total.count.table$mergedIndex <- paste0(total.count.table$index, total.count.table$index2)
-    total.count.table$Total_Count <- 0L
+  # running amplicon summary (add a "no_align" bin)
+  amp.match.summary.table <- setNames(integer(length(amplicons) + 1L),
+                                      c(names(amplicons), "no_align"))
 
-    #running summary of amplicon matching 
-    amp.match.summary.table=rep(0, length(amplicons)+1)
-    names(amp.match.summary.table)=c(names(amplicons),'no_align')
+  # build the Hamming-1 neighborhood for amplicons (your original approach)
+  amph1 <- lapply(amplicons, make_hamming1_sequences)
+  amph1 <- Biobase::reverseSplit(amph1)
+  amph1.elements <- names(amph1)
+  amph1.indices  <- as.vector(unlist(amph1))
 
-    ## ---------- NEW: precompute Hamming-1 maps for index1 and index2 (once) ----------
-    index1 <- unique(total.count.table$index)
-    index2 <- unique(total.count.table$index2)
+  # ------- NEW: totals table that uses the SAME sample order as your per-amplicon tables -------
+  # we copy the first amplicon's table structure to guarantee row order alignment
+  first_amp <- names(count.tables)[1]
+  if (length(first_amp) == 0L) stop("initAmpliconCountTables returned no tables.")
+  total_tbl_work <- data.table::data.table(
+    Sample_ID = count.tables[[first_amp]]$Sample_ID,
+    Count     = integer(nrow(count.tables[[first_amp]]))  # working 'Count' col for the helper
+  )
 
-    i1h <- lapply(index1, make_hamming1_sequences); names(i1h) <- index1
-    ih1 <- Biobase::reverseSplit(i1h)
-    ih1.elements <- names(ih1)
-    ih1.indices  <- as.vector(unlist(ih1))
+  repeat {
+    chunk <- readLines(in.con, n = line.buffer)
+    n_all <- length(chunk)
+    if (n_all == 0L) break
+    if (n_all %% 4L != 0L)
+      stop("FASTQ chunk not multiple of 4 lines (truncated input?).")
 
-    i2h <- lapply(index2, make_hamming1_sequences); names(i2h) <- index2
-    ih2 <- Biobase::reverseSplit(i2h)
-    ih2.elements <- names(ih2)
-    ih2.indices  <- as.vector(unlist(ih2))
+    lchunk <- n_all %/% 4L
+    lines_read <- lines_read + n_all
 
-    #expected amplicons with seq errors 
-    amph1=lapply(amplicons, make_hamming1_sequences)
-    amph1=Biobase::reverseSplit(amph1)
-    amph1.elements=names(amph1)
-    amph1.indices=as.vector(unlist(amph1))
+    # correct FASTQ parsing
+    nlines <- seq_len(n_all)
+    mod4   <- nlines %% 4L
+    header <- chunk[mod4 == 1L]
+    rd1    <- chunk[mod4 == 2L]
 
-    while(TRUE) {
-        chunk=readLines(in.con, n=line.buffer)
-        lchunk=length(chunk)/4
-        if(lchunk==0) {
-            break
-        }
-        #    print(paste('Read', lchunk), 'lines'))
-        lines_read = lines_read + lchunk
-        print(paste('Read', lines_read, 'reads'))
-        nlines=seq(1,lchunk) #ength(chunk))
-        nmod4=nlines%%4
+    # pull inline indices from header (everything after last colon)
+    if (nthreads > 1 && requireNamespace("stringfish", quietly = TRUE)) {
+      tmp <- stringfish::sf_gsub(header, ".*:", "", nthreads = nthreads)
+    } else {
+      tmp <- gsub(".*:", "", header, perl = TRUE)
+    }
+    ind1 <- substring(tmp, 1L, 10L)
+    ind2 <- substring(tmp, 12L, 21L)
 
-        header=chunk[nmod4==1]
-        if(nthreads>1) {
-            tmp=stringfish::sf_gsub(header,  ".*:", "", nthreads=nthreads)
-        } else {
-            tmp=gsub( ".*:", "", header, perl=T)
-        }
-        ind1=substring(tmp,1,10)
-        ind2=substring(tmp,12,21)
-        rd1=chunk[nmod4==2]
+    # ----- amplicon classification (R1) -----
+    amp.match <- amph1.indices[S4Vectors::match(rd1, amph1.elements)]
 
-         # match amplicons
-         # strategy here is better than reliance on helper functions from stringdist package
-         amp.match=amph1.indices[S4Vectors::match(rd1, amph1.elements)]
-         no_align=sum(is.na(amp.match))
+    # NA-safe per-chunk summary in canonical order
+    no_align <- sum(is.na(amp.match))
+    amp.tab  <- table(amp.match)  # NAs excluded
+    amp.vec  <- integer(length(amplicons)); names(amp.vec) <- names(amplicons)
+    if (length(amp.tab)) {
+      mpos <- match(names(amplicons), names(amp.tab))
+      sel  <- which(!is.na(mpos))
+      if (length(sel)) amp.vec[sel] <- as.integer(amp.tab[mpos[sel]])
+    }
+    amp.match.summary.table <- amp.match.summary.table + c(amp.vec, "no_align" = no_align)
 
-         #summarize amplicon matches
-         amp.match.summary=table(amp.match)
-         amp.match.summary=amp.match.summary[match(names(amplicons),names(amp.match.summary))]
-         amp.match.summary=c(amp.match.summary, no_align)
-         names(amp.match.summary) <- c(names(amp.match.summary[-length(amp.match.summary)]),"no_align")
-         amp.match.summary.table=amp.match.summary.table+amp.match.summary
-        
-        ## ---------- NEW: error-correct indices ONCE for the chunk ----------
-        i1m <- ih1.indices[S4Vectors::match(ind1, ih1.elements)]
-        i2m <- ih2.indices[S4Vectors::match(ind2, ih2.elements)]
-        m   <- match(paste0(i1m, i2m), total.count.table$mergedIndex)   # integer vector (NA if no EC)
+    # ----- your original per-amplicon counting path -----
+    per.amplicon.row.index <- lapply(names(amplicons), function(x) which(amp.match == x))
+    names(per.amplicon.row.index) <- names(amplicons)
 
-        ## ---------- NEW: update TOTALS for ALL reads with a valid EC ----------
-        if (any(!is.na(m))) {
-          mm <- m[!is.na(m)]
-          total.count.table$Total_Count <- total.count.table$Total_Count +
-            tabulate(mm, nbins = nrow(total.count.table))
-        }
-        
-         #convert to indices
-         per.amplicon.row.index=lapply(names(amplicons), function(x) which(amp.match==x))
-         names(per.amplicon.row.index)=names(amplicons)
+    for (a in names(count.tables)) {
+      if (!length(per.amplicon.row.index[[a]])) next
+      count.tables[[a]] <- errorCorrectIdxAndCountAmplicons(
+        per.amplicon.row.index[[a]],
+        count.tables[[a]],
+        ind1, ind2
+      )
+    }
 
-        for (a in names(count.tables)) {
-          if (length(per.amplicon.row.index[[a]]) == 0L) next
-          mi <- m[per.amplicon.row.index[[a]]]
-          mi <- mi[!is.na(mi)]
-          if (length(mi)) {
-            count.tables[[a]]$Count <- count.tables[[a]]$Count +
-              tabulate(mi, nbins = nrow(count.tables[[a]]))
-          }
-        }
+    # ----- NEW: totals bump = run the SAME index EC/counting on *all reads* -----
+    # this assigns every read to a sample (if indices EC) regardless of amplicon match
+    total_tbl_work <- errorCorrectIdxAndCountAmplicons(
+      seq_along(ind1),  # all reads in this chunk
+      total_tbl_work,
+      ind1, ind2
+    )
 
-         if (!is.null(max.lines) && lines_read >= max.lines) {
-      close(in.con)
-      return(list(
-        count.tables = count.tables,
-        amp.match.summary.table = amp.match.summary.table,
-        total.count.table = total.count.table
-      ))
+    # optional early stop (max.lines is in *lines*, not reads)
+    if (!is.null(max.lines) && lines_read >= max.lines) {
+      break
     }
   }
 
   close(in.con)
-  return(list(
-    count.tables = count.tables,
-    amp.match.summary.table = amp.match.summary.table,
-    total.count.table = total.count.table
-  ))
+
+  # collapse totals to one row per Sample_ID (in case Sample_IDs repeat)
+  total.count.table <- data.table::as.data.table(total_tbl_work)[
+    , .(Total_Count = sum(Count)), by = Sample_ID]
+
+  list(
+    count.tables             = count.tables,
+    amp.match.summary.table  = amp.match.summary.table,
+    total.count.table        = total.count.table
+  )
 }
+
