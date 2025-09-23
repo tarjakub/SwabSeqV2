@@ -301,7 +301,7 @@ countAmplicons=function(in.con, index.key, amplicons, line.buffer=5e6,max.lines=
              count.tables[[a]]= errorCorrectIdxAndCountAmplicons(rid=per.amplicon.row.index[[a]], count.tables[[a]], ind1=ind1,ind2=ind2)
           }
 
-          count.tables[["TOTAL"} = errorCorrectIdxAndCountAmplicons(
+          count.tables[["TOTAL"]] = errorCorrectIdxAndCountAmplicons(
             rid = seq_len(lchunk),
             count.table = count.tables[["TOTAL"]],
             ind1 = ind1,
