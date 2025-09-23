@@ -313,7 +313,7 @@ countAmplicons=function(in.con, index.key, amplicons, line.buffer=5e6,max.lines=
                  out$Total_Assigned[is.na(out$Total_Assigned)] <- 0
                  out$Unassigned <- pmax(out$Total_By_Index - out$Total_Assigned, 0)
                  return(list(count.tables=count.tables,
-                amp.match.summary.table=amp.match.summary.table, total.reads.per.sample=out))))
+                amp.match.summary.table=amp.match.summary.table, total.reads.per.sample=out)))
             }
           }
 
