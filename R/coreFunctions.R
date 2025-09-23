@@ -86,7 +86,7 @@ generateExpectedIndices=function(cfg, diri=NULL) {
 #' @export
 initAmpliconCountTables=function(index.key, amplicons) {
     #Munginging sample sheet-------------------------------------------------------------------
-    ss=index.key
+    ss=data.table::as.data.table(index.key)
     ss$mergedIndex=paste0(ss$index, ss$index2)
 
     # this code would be obviated if indices designate wells, for most analyses here there are different indices for s2/s2spike and rpp30
@@ -105,14 +105,14 @@ initAmpliconCountTables=function(index.key, amplicons) {
     for(a in names(amplicons)){
   #      if(grepl('^S',a)){    count.tables[[a]]=ssS   } 
   #      if(grepl('^R',a)){    count.tables[[a]]=ssR   } 
-            count.tables[[a]]=ss
-            count.tables[[a]]$Count=0
+            count.tables[[a]]=data.table::copy(ss)
+            count.tables[[a]]$Count=0L
             count.tables[[a]]$amplicon=a
     }
     
-    count.tables[["TOTAL"]] <- ss
-    count.tables[["TOTAL"]]$Count <- 0L
-    count.tables[["TOTAL"]]$amplicon <- "TOTAL"
+    count.tables[["TOTAL"]] = data.table::copy(ss)
+    count.tables[["TOTAL"]]$Count = 0L
+    count.tables[["TOTAL"]]$amplicon = "TOTAL"
 
     return(count.tables)
 }
