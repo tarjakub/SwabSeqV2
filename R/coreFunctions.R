@@ -109,10 +109,10 @@ initAmpliconCountTables=function(index.key, amplicons) {
             count.tables[[a]]$Count=0
             count.tables[[a]]$amplicon=a
     }
-    # TOTAL
+    
     count.tables[["TOTAL"]] <- ss
     count.tables[["TOTAL"]]$Count <- 0L
-    count.tables[["TOTAL]]$amplicon <- "TOTAL"
+    count.tables[["TOTAL"]]$amplicon <- "TOTAL"
 
     return(count.tables)
 }
