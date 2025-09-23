@@ -324,14 +324,14 @@ countAmplicons=function(in.con, index.key, amplicons, line.buffer=5e6,max.lines=
     )
 
     total_assigned <- assigned.dt[
-        , .(Total_Assigned = sum(Count, na.rm = TRUE)),
-        by = .(Plate_ID, Sample_Well, Sample_ID)
+        , list(Total_Assigned = sum(Count, na.rm = TRUE)),
+        by = list(Plate_ID, Sample_Well, Sample_ID)
     ]
 
     # All reads by indices (assigned + non-matching)
     total_by_index <- count.tables[["TOTAL"]][
-        , .(Total_By_Index = Count),
-        by = .(Plate_ID, Sample_Well, Sample_ID)
+        , list(Total_By_Index = Count),
+        by = list(Plate_ID, Sample_Well, Sample_ID)
     ]
 
     # Merge + compute unassigned
