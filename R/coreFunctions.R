@@ -235,23 +235,17 @@ countAmplicons=function(in.con, index.key, amplicons, line.buffer=5e6,max.lines=
 
     #in.con=gzcon(file('/data0/yeast/shen/bcls9/out/Amplicon71_S8_R1_001.fastq.gz', open='rb'))
     lines_read=0
+    #NEW add a new element 'unmatched' to expected amplicon list structure
+    amplicons$unmatched='' 
 
     count.tables=initAmpliconCountTables(index.key, amplicons)
-
-    # --- NEW: local totals table that counts ALL reads by indices (assigned + unassigned)
-    total.by.index <- index.key
-    total.by.index$mergedIndex <- paste0(total.by.index$index, total.by.index$index2)
-    total.by.index$Count <- 0
-
-    #running summary of amplicon matching 
-    amp.match.summary.table=rep(0, length(amplicons)+1)
-    names(amp.match.summary.table)=c(names(amplicons),'no_align')
 
     #expected amplicons with seq errors 
     amph1=lapply(amplicons, make_hamming1_sequences)
     amph1=Biobase::reverseSplit(amph1)
     amph1.elements=names(amph1)
     amph1.indices=as.vector(unlist(amph1))
+    
 
     while(TRUE) {
         chunk=readLines(in.con, n=line.buffer)
@@ -278,59 +272,20 @@ countAmplicons=function(in.con, index.key, amplicons, line.buffer=5e6,max.lines=
          # match amplicons
          # strategy here is better than reliance on helper functions from stringdist package
          amp.match=amph1.indices[S4Vectors::match(rd1, amph1.elements)]
-         no_align=sum(is.na(amp.match))
-
-         #summarize amplicon matches
-         amp.match.summary=table(amp.match)
-         amp.match.summary=amp.match.summary[match(names(amplicons),names(amp.match.summary))]
-         amp.match.summary=c(amp.match.summary, no_align)
-         names(amp.match.summary) <- c(names(amp.match.summary[-length(amp.match.summary)]),"no_align")
-         amp.match.summary.table=amp.match.summary.table+amp.match.summary
-
+         #NEW anything that doesn't match a hamming1 distance away expected amplicon ends up in unmatched
+         amp.match[is.na(amp.match)]='unmatched'   
+     
          #convert to indices
          per.amplicon.row.index=lapply(names(amplicons), function(x) which(amp.match==x))
          names(per.amplicon.row.index)=names(amplicons)
-        #2seconds
 
          #for each amplicon of interest count up reads where indices match expected samples
          for(a in names(count.tables)){
              count.tables[[a]]= errorCorrectIdxAndCountAmplicons(per.amplicon.row.index[[a]], count.tables[[a]], ind1,ind2)
           }
-         # --- NEW: count ALL reads for totals (amplicon-agnostic; by indices only)
-         total.by.index = errorCorrectIdxAndCountAmplicons(rid=seq_len(lchunk), count.table=total.by.index, ind1=ind1, ind2=ind2)
-
-
-         if(!is.null(max.lines)){
-         if(lines_read >= max.lines) { 
-                 close(in.con)
-                 # --- NEW: build and return totals if early-exiting
-                 totals.dt <- data.table::rbindlist(count.tables, use.names=TRUE, fill=TRUE)
-                 total_assigned <- aggregate(Count ~ Plate_ID + Sample_Well + Sample_ID, data=totals.dt, FUN=sum)
-                 total_by_index <- aggregate(Count ~ Plate_ID + Sample_Well + Sample_ID, data=total.by.index, FUN=sum)
-                 names(total_by_index)[names(total_by_index)=="Count"] <- "Total_By_Index"
-                 names(total_assigned)[names(total_assigned)=="Count"] <- "Total_Assigned"
-                 out <- merge(total_by_index, total_assigned, by=c("Plate_ID","Sample_Well","Sample_ID"), all.x=TRUE)
-                 out$Total_Assigned[is.na(out$Total_Assigned)] <- 0
-                 out$Unassigned <- pmax(out$Total_By_Index - out$Total_Assigned, 0)
-                 return(list(count.tables=count.tables,
-                amp.match.summary.table=amp.match.summary.table, total.reads.per.sample=out))
-            }
-          }
-
+        
         }
 
-    close(in.con)
-
-    # --- NEW: build per-sample totals (assigned + unassigned) for the normal return
-    totals.dt <- data.table::rbindlist(count.tables, use.names=TRUE, fill=TRUE)
-    total_assigned <- aggregate(Count ~ Plate_ID + Sample_Well + Sample_ID, data=totals.dt, FUN=sum)
-    total_by_index <- aggregate(Count ~ Plate_ID + Sample_Well + Sample_ID, data=total.by.index, FUN=sum)
-    names(total_by_index)[names(total_by_index)=="Count"] <- "Total_By_Index"
-    names(total_assigned)[names(total_assigned)=="Count"] <- "Total_Assigned"
-    out <- merge(total_by_index, total_assigned, by=c("Plate_ID","Sample_Well","Sample_ID"), all.x=TRUE)
-    out$Total_Assigned[is.na(out$Total_Assigned)] <- 0
-    out$Unassigned <- pmax(out$Total_By_Index - out$Total_Assigned, 0)
-    
-    return(list(count.tables=count.tables,
-                amp.match.summary.table=amp.match.summary.table, total.reads.per.sample=out))
+     close(in.con)
+    return(list(count.tables=count.tables ))
 }
